@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pen Duel</title>
+<style>
+:root{--bg:#1c1a17;--fg:#f3ece2;--accent:#e8b04a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#2a2622}}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden;touch-action:none;user-select:none}
+#app{height:100%;display:flex;flex-direction:column}
+#bar{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;font-weight:700}
+#bar button,#ov button,#lobby button,#np button{background:var(--accent);color:#2a1d08;border:0;border-radius:20px;padding:8px 14px;font-weight:700;font-size:14px}
+.s{font-size:18px;cursor:pointer}#nb,#nr{display:inline-block;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}#np input{font-size:20px;width:200px;text-align:center;border-radius:12px;border:0;padding:10px;user-select:text}.b{color:#6cb4ff}.r{color:#ff7b6b}
+#wrap{flex:1;min-height:0;position:relative}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#st{text-align:center;padding:8px 10px 12px;font-size:15px;min-height:22px}
+#ov,#lobby,#np{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:rgba(0,0,0,.55);font-size:26px;font-weight:800;text-align:center}
+#ov button,#lobby button,#np button{font-size:18px;padding:12px 24px}#bar button{font-size:13px;padding:6px 10px}.g{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}#ci{font-size:22px;width:100px;text-align:center;text-transform:uppercase;border-radius:12px;border:0;padding:10px;user-select:text}
+</style></head><body>
+<div id="app">
+ <div id="bar"><span class="s" id="sc"><span class="b"><span id="nb">Blue</span> <span id="sb">0</span></span> : <span class="r"><span id="sr">0</span> <span id="nr">Red</span></span> ✏️</span><span class="g"><button id="look">Ballpoint</button><button id="snd">🔊</button><button id="lvl">Normal</button><button id="mode">vs CPU</button></span></div>
+ <div id="wrap"><canvas id="c"></canvas><div id="lobby"><div>Online duel</div><button id="mk">Create room</button><div style="font-size:15px;font-weight:600">or enter a code</div><div style="display:flex;gap:8px"><input id="ci" maxlength="4" placeholder="CODE" autocapitalize="characters"><button id="jn">Join</button></div><div id="lt" style="font-size:15px;font-weight:600;max-width:290px;min-height:44px"></div><button id="bk">Back</button></div><div id="np"><div>Player names</div><input id="n1" maxlength="12" placeholder="Your name"><input id="n2" maxlength="12" placeholder="Player 2"><button id="ns">Save</button></div><div id="ov"><div id="msg"></div><button id="again">Rematch</button></div></div>
+ <div id="st"></div>
+</div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),st=document.getElementById('st'),ov=document.getElementById('ov');
+const W=360,H=600,T={x:28,y:40,w:304,h:520},L=96,R=9,I=1400;
+let sc=1,ox=0,oy=0,pens,turn,state,drag,cpu=true,score=[0,0],aiT=0,aiShot=null,hitFlash=0;
+let mode='cpu',me=0,net=null,skin=0,snd=true,AC=null,lvl=1,SIM=false;
+function resize(){const r=cv.parentElement.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=r.width*d;cv.height=r.height*d;sc=Math.min(r.width/W,r.height/H);ox=(r.width-W*sc)/2;oy=(r.height-H*sc)/2;cv._d=d}
+addEventListener('resize',resize);
+function reset(){pens=[{x:150,y:430,a:-.25,vx:0,vy:0,w:0,fall:0,col:'#3d8bf0'},{x:210,y:170,a:.25,vx:0,vy:0,w:0,fall:0,col:'#e4503f'}];turn=0;state='aim';drag=null;aiShot=null;ov.style.display='none';msg()}
+function msg(){if(state==='aim'){if(mode==='online')st.textContent=turn===me?'Your turn: drag back from your pen and release':names[turn]+"'s turn…";else st.textContent=names[turn]+(cpu&&turn===1?' is aiming…':': drag back from your pen, release to flick')}else if(state==='move')st.textContent='…'}
+function ends(p){const c=Math.cos(p.a)*L/2,s=Math.sin(p.a)*L/2;return[p.x-c,p.y-s,p.x+c,p.y+s]}
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+function segCl(a,b,c,d){const d1=[b[0]-a[0],b[1]-a[1]],d2=[d[0]-c[0],d[1]-c[1]],r=[a[0]-c[0],a[1]-c[1]];
+ const A=d1[0]*d1[0]+d1[1]*d1[1],E=d2[0]*d2[0]+d2[1]*d2[1],F=d2[0]*r[0]+d2[1]*r[1],C=d1[0]*r[0]+d1[1]*r[1],B=d1[0]*d2[0]+d1[1]*d2[1],den=A*E-B*B;
+ let s=den>1e-9?cl((B*F-C*E)/den,0,1):0,t=(B*s+F)/E;
+ if(t<0){t=0;s=cl(-C/A,0,1)}else if(t>1){t=1;s=cl((B-C)/A,0,1)}
+ return[[a[0]+d1[0]*s,a[1]+d1[1]*s],[c[0]+d2[0]*t,c[1]+d2[1]*t]]}
+function impulse(p,pt,jx,jy){const rx=pt[0]-p.x,ry=pt[1]-p.y;p.vx+=jx;p.vy+=jy;p.w+=(rx*jy-ry*jx)*.3/I*1}
+function collide(){const A=pens[0],B=pens[1],ea=ends(A),eb=ends(B),[pa,pb]=segCl(ea.slice(0,2),ea.slice(2),eb.slice(0,2),eb.slice(2));
+ let nx=pb[0]-pa[0],ny=pb[1]-pa[1],d=Math.hypot(nx,ny);if(d>=2*R)return;
+ if(d<1e-6){nx=-Math.sin(A.a);ny=Math.cos(A.a);d=1e-6}else{nx/=d;ny/=d}
+ const pen=2*R-d;A.x-=nx*pen/2;A.y-=ny*pen/2;B.x+=nx*pen/2;B.y+=ny*pen/2;
+ const cx=(pa[0]+pb[0])/2,cy=(pa[1]+pb[1])/2,ra=[cx-A.x,cy-A.y],rb=[cx-B.x,cy-B.y];
+ const va=[A.vx-A.w*ra[1],A.vy+A.w*ra[0]],vb=[B.vx-B.w*rb[1],B.vy+B.w*rb[0]];
+ const vn=(vb[0]-va[0])*nx+(vb[1]-va[1])*ny;if(vn>=0)return;
+ const ca=ra[0]*ny-ra[1]*nx,cb=rb[0]*ny-rb[1]*nx,j=-(1.3)*vn/(2+ca*ca/I+cb*cb/I);
+ A.vx-=j*nx;A.vy-=j*ny;A.w-=j*ca/I;B.vx+=j*nx;B.vy+=j*ny;B.w+=j*cb/I;
+ if(!SIM&&Math.abs(vn)>25)tock(-vn/650);if(!SIM&&Math.abs(vn)>60){hitFlash=1;navigator.vibrate&&navigator.vibrate(20)}}
+function step(dt){
+ for(const p of pens){if(p.fall){p.fall+=dt*2.2;continue}
+  p.x+=p.vx*dt;p.y+=p.vy*dt;p.a+=p.w*dt;const f=Math.exp(-3*dt),g=Math.exp(-5*dt);p.vx*=f;p.vy*=f;p.w*=g;const sp=Math.hypot(p.vx,p.vy);if(sp>0){const k=Math.max(0,sp-140*dt)/sp;p.vx*=k;p.vy*=k}
+  if(Math.hypot(p.vx,p.vy)<10&&Math.abs(p.w)<.4){p.vx=p.vy=p.w=0}}
+ if(!pens[0].fall&&!pens[1].fall)collide();
+ pens.forEach((p,i)=>{if(!p.fall&&out(p)>OUT){p.fall=.01;if(!SIM&&state!=='over'&&(mode!=='online'||turn===me)){end(1-i);if(mode==='online'&&net)net.emit('over',{w:1-i})}}})}
+function end(w){state='over';sfx('fall');setTimeout(()=>sfx('win'),450);score[w]++;document.getElementById('sb').textContent=score[0];document.getElementById('sr').textContent=score[1];
+ setTimeout(()=>{document.getElementById('msg').textContent=names[w]+' wins!';ov.style.display='flex'},700)}
+function still(){return pens.every(p=>p.fall||(!p.vx&&!p.vy&&!p.w))}
+function fire(p,pt,dx,dy,pw,remote){const l=Math.hypot(dx,dy)||1,s=160+pw*1250;impulse(p,pt,dx/l*s,dy/l*s);state='move';sfx('flick',pw);if(mode==='online'&&!remote&&net)net.emit('shot',{q:pt,dx,dy,pw});msg()}
+function nearest(p,x,y){const e=ends(p),dx=e[2]-e[0],dy=e[3]-e[1],t=cl(((x-e[0])*dx+(y-e[1])*dy)/(dx*dx+dy*dy),0,1),q=[e[0]+dx*t,e[1]+dy*t];return{q,d:Math.hypot(x-q[0],y-q[1])}}
+function pos(e){const r=cv.getBoundingClientRect(),x=(e.clientX-r.left-ox)/sc,y=(e.clientY-r.top-oy)/sc;return flip()?[W-x,H-y]:[x,y]}
+cv.addEventListener('pointerdown',e=>{if(state!=='aim'||!human(turn))return;const[x,y]=pos(e),n=nearest(pens[turn],x,y);if(n.d<46){drag={q:n.q,x,y};cv.setPointerCapture(e.pointerId)}});
+cv.addEventListener('pointermove',e=>{if(drag){[drag.x,drag.y]=pos(e)}});
+cv.addEventListener('pointerup',()=>{if(!drag)return;const dx=drag.q[0]-drag.x,dy=drag.q[1]-drag.y,l=Math.hypot(dx,dy);
+ if(l>14)fire(pens[turn],drag.q,dx,dy,Math.min(l,130)/130);drag=null});
+function ai(dt){if(!(cpu&&state==='aim'&&turn===1))return;
+ if(!aiShot){const b=aiPick();aiShot={a:b.a+(Math.random()-.5)*LV[lvl].e,pw:b.pw,t:0}}
+ aiShot.t+=dt;if(aiShot.t>1){const me=pens[1];fire(me,[me.x,me.y],Math.cos(aiShot.a),Math.sin(aiShot.a),aiShot.pw);aiShot=null}}
+function draw(){const d=cv._d;ctx.setTransform(d,0,0,d,0,0);const cw=cv.width/d,ch=cv.height/d;ctx.clearRect(0,0,cw,ch);
+ ctx.save();ctx.translate(ox,oy);ctx.scale(sc,sc);if(flip()){ctx.translate(W,H);ctx.rotate(Math.PI)}
+ ctx.fillStyle='#8a5a30';ctx.fillRect(T.x-8,T.y-8,T.w+16,T.h+16);
+ ctx.fillStyle='#c48b55';ctx.fillRect(T.x,T.y,T.w,T.h);
+ ctx.strokeStyle='rgba(90,55,25,.18)';ctx.lineWidth=1;for(let y=T.y+14;y<T.y+T.h;y+=22){ctx.beginPath();ctx.moveTo(T.x,y);ctx.lineTo(T.x+T.w,y+Math.sin(y)*3);ctx.stroke()}
+ if(hitFlash>0){ctx.fillStyle=`rgba(255,255,255,${hitFlash*.15})`;ctx.fillRect(T.x,T.y,T.w,T.h);hitFlash=Math.max(0,hitFlash-.08)}
+ pens.forEach((p,i)=>{const e=ends(p),s=Math.max(0,1-p.fall*.6);ctx.save();ctx.translate(p.x,p.y);ctx.scale(s,s);ctx.translate(-p.x,-p.y);
+  ctx.globalAlpha=.25;ctx.lineCap='round';ctx.strokeStyle='#000';ctx.lineWidth=2*R;ctx.beginPath();ctx.moveTo(e[0]+3,e[1]+4);ctx.lineTo(e[2]+3,e[3]+4);ctx.stroke();ctx.globalAlpha=1;
+  if(state==='aim'&&turn===i&&!p.fall){ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=2*R+8;ctx.beginPath();ctx.moveTo(e[0],e[1]);ctx.lineTo(e[2],e[3]);ctx.stroke()}
+  if(SK[skin].bp)bp(p,i);else{ctx.strokeStyle=SK[skin].c[i];ctx.lineWidth=2*R;ctx.beginPath();ctx.moveTo(e[0],e[1]);ctx.lineTo(e[2],e[3]);ctx.stroke();if(SK[skin].m){const dx=e[2]-e[0],dy=e[3]-e[1];ctx.lineCap='butt';ctx.strokeStyle='rgba(0,0,0,.3)';ctx.beginPath();ctx.moveTo(e[0]+dx*.6,e[1]+dy*.6);ctx.lineTo(e[0]+dx*.7,e[1]+dy*.7);ctx.stroke();ctx.lineCap='round'}
+  ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(e[0]+4*Math.cos(p.a),e[1]+4*Math.sin(p.a)-3);ctx.lineTo(e[2]-4*Math.cos(p.a),e[3]-4*Math.sin(p.a)-3);ctx.stroke();
+  ctx.fillStyle='#222';ctx.beginPath();ctx.arc(e[2],e[3],R*.55,0,7);ctx.fill()}ctx.restore()});
+ let aim=null;if(drag){aim=[drag.q,[drag.q[0]-drag.x,drag.q[1]-drag.y]]}
+ else if(aiShot&&state==='aim'){const m=pens[1];aim=[[m.x,m.y],[Math.cos(aiShot.a)*aiShot.pw*130,Math.sin(aiShot.a)*aiShot.pw*130]]}
+ if(aim){const[q,v]=aim,l=Math.min(Math.hypot(v[0],v[1]),130),k=l/(Math.hypot(v[0],v[1])||1),ex=q[0]+v[0]*k*1.6,ey=q[1]+v[1]*k*1.6;
+  ctx.strokeStyle=`hsl(${120-l},90%,55%)`;ctx.lineWidth=4;ctx.setLineDash([2,9]);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(q[0],q[1]);ctx.lineTo(ex,ey);ctx.stroke();ctx.setLineDash([]);
+  if(drag){ctx.strokeStyle='rgba(255,255,255,.7)';ctx.beginPath();ctx.moveTo(q[0],q[1]);ctx.lineTo(drag.x,drag.y);ctx.stroke();ctx.beginPath();ctx.arc(drag.x,drag.y,8,0,7);ctx.stroke()}}
+ ctx.restore()}
+
+const human=i=>mode==='online'?i===me:mode==='cpu'?i===0:true,flip=()=>mode==='online'&&me===1,$=id=>document.getElementById(id);
+const SK=[{n:'Ballpoint',c:['#2f5fd0','#d8312b'],bp:1},{n:'Classic',c:['#3d8bf0','#e4503f']},{n:'Neon',c:['#b6f21f','#ff3dbb']},{n:'Gold',c:['#d9b44a','#aab4be'],m:1}];
+function nextTurn(){turn=1-turn;state='aim';msg()}
+function ac(){if(!AC){try{AC=new(window.AudioContext||window.webkitAudioContext)()}catch(e){}}if(AC&&AC.state==='suspended')AC.resume();return AC}
+function noise(d){const n=AC.sampleRate*d|0,b=AC.createBuffer(1,n,AC.sampleRate),a=b.getChannelData(0);for(let i=0;i<n;i++)a[i]=(Math.random()*2-1)*(1-i/n);return b}
+function tock(v){if(!snd||!ac())return;v=Math.min(1,v);const t=AC.currentTime,g=AC.createGain();g.gain.setValueAtTime(.15+.6*v,t);g.gain.exponentialRampToValueAtTime(.001,t+.12);g.connect(AC.destination);
+ const s=AC.createBufferSource();s.buffer=noise(.05);const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=2600+Math.random()*900;f.Q.value=1.2;s.connect(f);f.connect(g);s.start(t);
+ const o=AC.createOscillator();o.type='triangle';o.frequency.setValueAtTime(1300+Math.random()*300,t);o.frequency.exponentialRampToValueAtTime(500,t+.08);o.connect(g);o.start(t);o.stop(t+.12)}
+function sfx(k,v){if(!snd||!ac())return;const t=AC.currentTime,g=AC.createGain();g.connect(AC.destination);
+ if(k==='flick'){g.gain.setValueAtTime(.05+.25*v,t);g.gain.exponentialRampToValueAtTime(.001,t+.15);const s=AC.createBufferSource();s.buffer=noise(.15);const f=AC.createBiquadFilter();f.type='lowpass';f.frequency.setValueAtTime(600,t);f.frequency.exponentialRampToValueAtTime(3000,t+.12);s.connect(f);f.connect(g);s.start(t)}
+ else{const o=AC.createOscillator();g.gain.setValueAtTime(.3,t);g.gain.exponentialRampToValueAtTime(.001,t+.5);
+  if(k==='fall'){o.frequency.setValueAtTime(500,t);o.frequency.exponentialRampToValueAtTime(90,t+.45)}else{o.type='triangle';o.frequency.setValueAtTime(523,t);o.frequency.setValueAtTime(784,t+.12)}
+  o.connect(g);o.start(t);o.stop(t+.5)}}
+addEventListener('pointerdown',ac);
+
+function connectRoom(code,role){return new Promise((res,rej)=>{
+ const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/'+code+'?r='+(role===0?'c':'j')),H={};let opened=false;
+ const o={emit:(t,d)=>{if(ws.readyState===1)ws.send(JSON.stringify({t,d}))},on:(t,f)=>{(H[t]=H[t]||[]).push(f)},leave:()=>{try{ws.close()}catch(e){}}};
+ ws.onopen=()=>{opened=true;res(o)};
+ ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(x){return}if(!m||typeof m.t!=='string')return;(H[m.t]||[]).forEach(f=>f({isMe:!!m.m,data:m.d}))};
+ ws.onerror=()=>{if(!opened)rej(new Error('ws'))};
+ ws.onclose=()=>(H.closed||[]).forEach(f=>f({}));
+})}
+const lob=$('lobby'),lt=$('lt'),ci=$('ci'),ok=Number.isFinite;
+async function goOnline(role,code){
+ lt.textContent='Connecting…';
+ try{net=await connectRoom(code,role)}catch(e){net=null;lt.textContent='Could not reach the server.';return}
+ net.on('err',m=>{const e=m.data;lt.textContent=e==='none'?'No room with that code.':e==='full'?'That room is full.':e==='taken'?'Code already in use. Tap Create again.':'Something went wrong.';try{net.leave()}catch(x){}net=null});
+ net.on('left',()=>{if(state==='over')return;state='wait';lob.style.display='flex';lt.textContent='Your opponent left the room.'});
+ net.on('closed',()=>{if(net&&state!=='over'){state='wait';lob.style.display='flex';lt.textContent='Connection lost.'}});
+ me=role;mode='online';applyNames();
+ net.on('join',m=>{if(!m.isMe&&me===0){names[1]=clean((m.data||{}).name)||'Guest';net.emit('start',{h:names[0],j:names[1]})}});
+ net.on('start',m=>{const d=m.data||{};if(typeof d.h==='string')names[0]=clean(d.h)||'Host';if(typeof d.j==='string')names[1]=clean(d.j)||'Guest';renderNames();lob.style.display='none';reset()});
+ net.on('shot',m=>{const d=m.data||{};if(m.isMe||state!=='aim'||turn===me||!Array.isArray(d.q)||![d.q[0],d.q[1],d.dx,d.dy,d.pw].every(ok))return;
+  const p=pens[turn];fire(p,nearest(p,d.q[0],d.q[1]).q,d.dx,d.dy,cl(d.pw,0,1),true)});
+ net.on('rest',m=>{const a=m.data&&m.data.s;if(m.isMe||state!=='move'||!Array.isArray(a)||a.length!==2)return;
+  if(!a.every(q=>Array.isArray(q)&&q.length===3&&q.every(ok)))return;
+  pens.forEach((p,i)=>{p.x=a[i][0];p.y=a[i][1];p.a=a[i][2];p.vx=p.vy=p.w=0;p.fall=0});nextTurn()});
+ net.on('over',m=>{const w=m.data&&m.data.w;if(m.isMe||state==='over'||(w!==0&&w!==1))return;pens[1-w].fall=pens[1-w].fall||.01;end(w)});
+ if(role===0)lt.textContent='Room code: '+code.toUpperCase()+'. Your friend opens this page, taps Join and types it. Waiting…';
+ else{lt.textContent='Joining…';net.emit('join',{name:my})}}
+function setMode(m){if(net){try{net.leave()}catch(e){}net=null}mode=m;cpu=m==='cpu';applyNames();score=[0,0];$('sb').textContent=0;$('sr').textContent=0;
+ $('mode').textContent={cpu:'vs CPU','2p':'2 Players',online:'Online'}[m];$('lvl').style.display=m==='cpu'?'':'none';
+ if(m==='online'){state='wait';lob.style.display='flex';lt.textContent='';st.textContent=''}else{lob.style.display='none';reset()}}
+$('mode').onclick=()=>setMode({cpu:'2p','2p':'online',online:'cpu'}[mode]);
+$('mk').onclick=()=>goOnline(0,Array.from({length:4},()=>'abcdefghjkmnpqrstuvwxyz'[Math.random()*23|0]).join(''));
+$('jn').onclick=()=>{const c=ci.value.trim().toLowerCase();if(!/^[a-z]{4}$/.test(c)){lt.textContent='Enter the 4-letter code.';return}goOnline(1,c)};
+$('bk').onclick=()=>setMode('cpu');
+$('again').onclick=()=>{if(mode==='online'&&net)net.emit('start',{h:names[0],j:names[1]});else reset()};
+$('snd').onclick=e=>{snd=!snd;e.target.textContent=snd?'🔊':'🔇'};
+$('look').onclick=e=>{skin=(skin+1)%SK.length;e.target.textContent=SK[skin].n};
+
+function rr(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r)}
+function bp(p,i){const C=SK[skin].c[i],h=L/2,w=R*.85;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.a);
+ ctx.fillStyle='rgba(228,240,250,.62)';ctx.strokeStyle='rgba(70,90,110,.6)';ctx.lineWidth=1.2;rr(-h+5,-w,L-26,2*w,w*.8);ctx.fill();ctx.stroke();
+ ctx.fillStyle='#2b3550';ctx.fillRect(-h+8,-1.2,L-38,2.4);
+ ctx.fillStyle='#f6f4f0';ctx.fillRect(-2,-w,17,2*w);ctx.fillStyle='#d8312b';ctx.fillRect(-2,-w,17,3.5);ctx.fillRect(-2,w-3.5,17,3.5);
+ ctx.fillStyle='#8a8a8a';ctx.fillRect(2,-1,9,2);
+ ctx.fillStyle='#f2c22b';ctx.fillRect(-9,-w,4,2*w);ctx.fillRect(-15,-w,3,2*w);ctx.fillStyle=C;ctx.fillRect(-21,-w,3,2*w);
+ ctx.fillStyle=C;rr(-h,-R*.8,10,R*1.6,[R*.8,2,2,R*.8]);ctx.fill();
+ rr(h-27,-R,27,2*R,[3,R,R,3]);ctx.fill();ctx.strokeStyle='rgba(0,0,0,.25)';ctx.lineWidth=1;ctx.stroke();
+ ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(h-22,-R*.5);ctx.lineTo(h-8,-R*.5);ctx.stroke();ctx.restore()}
+
+const LV=[{n:'Easy',c:3,e:.35},{n:'Normal',c:16,e:.1},{n:'Hard',c:40,e:.03}];
+const ed=q=>Math.min(q.x-T.x,T.x+T.w-q.x,q.y-T.y,T.y+T.h-q.y);
+function aiPick(){const snap=JSON.stringify(pens),m=pens[1],o=pens[0],base=Math.atan2(o.y-m.y,o.x-m.x);let best=null;
+ for(let k=0;k<LV[lvl].c;k++){const a=base+(Math.random()-.5)*1.5,pw=.45+Math.random()*.55,sp=160+pw*1250;
+  pens=JSON.parse(snap);SIM=true;impulse(pens[1],[pens[1].x,pens[1].y],Math.cos(a)*sp,Math.sin(a)*sp);
+  for(let i=0;i<500;i++){step(1/120);if(i>20&&still())break}
+  SIM=false;const A=pens[0],B=pens[1],v=A.fall?1000:B.fall?-1000:ed(B)*.5-ed(A);
+  if(!best||v>best.v)best={a,pw,v}}
+ pens=JSON.parse(snap);return best}
+$('lvl').onclick=e=>{lvl=(lvl+1)%3;e.target.textContent=LV[lvl].n};
+
+const OUT=.995;
+function out(p){const e=ends(p),dx=e[2]-e[0],dy=e[3]-e[1];let t0=0,t1=1;
+ for(const[q,r]of[[-dx,e[0]-T.x+R],[dx,T.x+T.w+R-e[0]],[-dy,e[1]-T.y+R],[dy,T.y+T.h+R-e[1]]]){
+  if(Math.abs(q)<1e-9){if(r<0)return 1}else{const t=r/q;if(q<0){if(t>t1)return 1;if(t>t0)t0=t}else{if(t<t0)return 1;if(t<t1)t1=t}}}
+ return 1-(t1-t0)}
+
+const ld=k=>{try{return localStorage.getItem(k)}catch(e){return null}},sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+const clean=v=>String(v||'').replace(/[\u0000-\u001f<>]/g,'').trim().slice(0,12);
+let my=clean(ld('pd_n1'))||'Blue',p2=clean(ld('pd_n2'))||'Red',names=['Blue','Red'];
+function renderNames(){$('nb').textContent=names[0];$('nr').textContent=names[1]}
+function applyNames(){if(mode==='cpu')names=[my,'CPU'];else if(mode==='2p')names=[my,p2];else{names=['Host','Guest'];names[me]=my}renderNames()}
+const np=$('np'),n1=$('n1'),n2=$('n2');
+$('sc').onclick=()=>{if(mode==='online'&&state!=='wait')return;n1.value=my;n2.value=p2;n2.style.display=mode==='2p'?'':'none';n1.placeholder=mode==='2p'?'Player 1':'Your name';np.style.display='flex'};
+$('ns').onclick=()=>{my=clean(n1.value)||'Blue';sv('pd_n1',my);if(mode==='2p'){p2=clean(n2.value)||'Red';sv('pd_n2',p2)}applyNames();np.style.display='none';msg()};
+applyNames();
+let last=performance.now(),acc=0;
+function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;acc+=dt;
+ while(acc>1/120){step(1/120);acc-=1/120}
+ ai(dt);
+ if(state==='move'&&still()){if(mode!=='online')nextTurn();else if(turn===me){net&&net.emit('rest',{s:pens.map(p=>[p.x,p.y,p.a])});nextTurn()}}
+ draw();requestAnimationFrame(loop)}
+resize();reset();requestAnimationFrame(loop);
+</script></body></html>
